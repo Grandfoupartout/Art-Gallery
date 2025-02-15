@@ -1,0 +1,207 @@
+/* App.css */
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+nav {
+  background-color: #333;
+  padding: 1rem;
+}
+
+nav ul {
+  list-style-type: none;
+  padding: 0;
+}
+
+nav ul li {
+  display: inline;
+  margin-right: 1rem;
+}
+
+nav ul li a {
+  color: white;
+  text-decoration: none;
+}
+
+nav ul li a:hover {
+  text-decoration: underline;
+}
+
+.container {
+  padding: 2rem;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+form input,
+form button {
+  padding: 0.65rem;
+  font-size: 1rem;
+}
+
+form button {
+  background-color: #333;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+form button:hover {
+  background-color: #555;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 2rem;
+  background-color: var(--surface);
+  color: var(--text);
+}
+
+table, th, td {
+  border: 1px solid #ddd;
+}
+
+th, td {
+  padding: 0.5rem;
+  text-align: left;
+}
+
+th {
+  background-color: var(--tableHeader);
+  color: var(--text);
+}
+
+.app-container {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--background);
+  color: var(--text);
+}
+
+.sidebar {
+  width: 250px;
+  background-color: var(--surface);
+  color: var(--text);
+  padding: 20px 0;
+  box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+}
+
+.logo {
+  padding: 0 20px;
+  margin-bottom: 30px;
+}
+
+.logo h1 {
+  font-size: 1.5rem;
+  color: var(--text);
+  margin: 0;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.nav-links {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  padding: 15px 20px;
+  color: var(--text);
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+
+.nav-link:hover {
+  background-color: var(--hover);
+  color: var(--primary);
+}
+
+.nav-link i {
+  margin-right: 10px;
+  width: 20px;
+  text-align: center;
+}
+
+.nav-link span {
+  font-size: 0.9rem;
+}
+
+.main-content {
+  flex: 1;
+  padding: 20px;
+  background-color: var(--background);
+  overflow-y: auto;
+}
+
+/* Style actif pour le lien de navigation courant */
+.nav-link.active {
+  background-color: #34495e;
+  color: #3498db;
+  border-left: 4px solid #3498db;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 60px;
+  }
+
+  .logo h1 {
+    display: none;
+  }
+
+  .nav-link span {
+    display: none;
+  }
+
+  .nav-link {
+    justify-content: center;
+    padding: 15px 0;
+  }
+
+  .nav-link i {
+    margin: 0;
+    font-size: 1.2rem;
+  }
+}
+
+/* Add these styles to your App.css */
+.chart-container {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.chart-container h3 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  color: #333;
+  font-size: 1.2rem;
+}
+
+tr:nth-child(even) {
+  background-color: var(--tableRowAlt);
+}
+
+tr:hover {
+  background-color: var(--tableRowHover);
+}
+
+input, select, textarea {
+  background-color: var(--input);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
