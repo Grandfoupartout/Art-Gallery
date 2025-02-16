@@ -20,10 +20,8 @@ app.use(bodyParser.json());
 const connectDB = async () => {
   try {
     await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/galerie', {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
-      socketTimeoutMS: 45000, // Close sockets after 45s
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
     });
     console.log('MongoDB Connected Successfully');
   } catch (error) {
@@ -83,15 +81,22 @@ const clientSchema = new mongoose.Schema({
   preferences: String,
   categorie: {
     type: String,
-    enum: ['vip', 'regular', 'prospect', 'inactive']
+    enum: ['vip', 'regular', 'prospect', 'inactive', '']
   },
   idPartenaire: { 
     type: mongoose.Schema.Types.ObjectId, 
-    ref: 'Partenaire'
+    ref: 'Partenaire',
+    required: false
   },
   historiqueAchats: String,
-  derniereRelance: Date,
-  dateDernierContact: Date,
+  derniereRelance: {
+    type: Date,
+    required: false
+  },
+  dateDernierContact: {
+    type: Date,
+    required: false
+  },
   commentaires: String
 });
 
@@ -134,10 +139,26 @@ artisteSchema.pre('save', async function(next) {
 
 const budgetSchema = new mongoose.Schema({
   id: { type: String, unique: true },
-  date: Date,
-  categorie: String,
+  date: { 
+    type: Date,
+    required: true,
+    set: function(val) {
+      if (!val) return val;
+      const date = new Date(val);
+      if (isNaN(date.getTime())) return val;
+      date.setUTCHours(0, 0, 0, 0); // Set to midnight UTC
+      return date;
+    }
+  },
+  categorie: { 
+    type: String, 
+    required: true
+  },
   description: String,
-  montant: Number,
+  montant: { 
+    type: Number, 
+    required: true 
+  },
   type: {
     type: String,
     enum: ['revenu', 'depense'],
@@ -145,14 +166,23 @@ const budgetSchema = new mongoose.Schema({
   }
 });
 
-// Add a pre-save middleware to handle positive/negative values
+// Add pre-save middleware for budget ID generation
+budgetSchema.pre('save', async function(next) {
+  if (!this.id) {
+    this.id = `B${await getNextSequence('budget_id')}`;
+  }
+  next();
+});
+
+// Add pre-save middleware for montant handling
 budgetSchema.pre('save', function(next) {
-  // If it's a depense (expense), make sure the amount is negative
+  // Ensure montant is a number
+  this.montant = Number(this.montant);
+  
+  // Handle sign based on type
   if (this.type === 'depense' && this.montant > 0) {
     this.montant = -this.montant;
-  }
-  // If it's a revenu (income), make sure the amount is positive
-  if (this.type === 'revenu' && this.montant < 0) {
+  } else if (this.type === 'revenu' && this.montant < 0) {
     this.montant = Math.abs(this.montant);
   }
   next();
@@ -380,6 +410,22 @@ app.post('/api/clients', async (req, res) => {
       });
     }
 
+    // Handle empty strings for optional fields
+    if (clientData.idPartenaire === '') {
+      clientData.idPartenaire = null;
+    }
+    if (clientData.categorie === '') {
+      clientData.categorie = null;
+    }
+
+    // Handle date fields
+    if (clientData.derniereRelance) {
+      clientData.derniereRelance = new Date(clientData.derniereRelance);
+    }
+    if (clientData.dateDernierContact) {
+      clientData.dateDernierContact = new Date(clientData.dateDernierContact);
+    }
+
     // Create new client
     const newClient = new Client(clientData);
     await newClient.save();
@@ -412,6 +458,14 @@ app.put('/api/clients/:id', async (req, res) => {
   try {
     const updateData = { ...req.body };
 
+    // Handle empty strings for optional fields
+    if (updateData.idPartenaire === '') {
+      updateData.idPartenaire = null;
+    }
+    if (updateData.categorie === '') {
+      updateData.categorie = null;
+    }
+
     // Handle date conversions
     if (updateData.derniereRelance) {
       updateData.derniereRelance = new Date(updateData.derniereRelance);
@@ -423,7 +477,7 @@ app.put('/api/clients/:id', async (req, res) => {
     const updatedClient = await Client.findByIdAndUpdate(
       req.params.id,
       updateData,
-      { new: true }
+      { new: true, runValidators: true }
     )
     .populate('idPartenaire')
     .lean();
@@ -453,13 +507,29 @@ app.put('/api/clients/:id', async (req, res) => {
 
 app.delete('/api/clients/:id', async (req, res) => {
   try {
+    // Check if client has related ventes
+    const relatedVentes = await Vente.find({ idClient: req.params.id });
+    if (relatedVentes.length > 0) {
+      return res.status(400).json({ 
+        message: 'Impossible de supprimer le client car il a des ventes associées' 
+      });
+    }
+
     const deletedClient = await Client.findByIdAndDelete(req.params.id);
     if (!deletedClient) {
       return res.status(404).json({ message: 'Client non trouvé' });
     }
-    res.json({ message: 'Client supprimé avec succès' });
+
+    // Delete related suivis
+    await Suivi.deleteMany({ idClient: req.params.id });
+
+    res.json({ message: 'Client et suivis associés supprimés avec succès' });
   } catch (error) {
-    res.status(500).json({ message: 'Erreur lors de la suppression du client', error: error.message });
+    console.error('Error deleting client:', error);
+    res.status(500).json({ 
+      message: 'Erreur lors de la suppression du client', 
+      error: error.message 
+    });
   }
 });
 
@@ -523,42 +593,147 @@ app.put('/api/artistes/:id', async (req, res) => {
 // API Endpoints for Budget
 app.get('/api/budget', async (req, res) => {
   try {
-    const budgets = await Budget.find();
-    res.json(budgets);
+    const budgets = await Budget.find().lean();
+    
+    // Format dates for client-side display
+    const formattedBudgets = budgets.map(budget => ({
+      ...budget,
+      date: budget.date ? budget.date.toISOString().split('T')[0] : null
+    }));
+    
+    res.json(formattedBudgets);
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching budget' });
+    console.error('Error fetching budget:', error);
+    res.status(500).json({ 
+      message: 'Erreur lors de la récupération du budget',
+      error: error.message 
+    });
   }
 });
 
 app.post('/api/budget', async (req, res) => {
   try {
-    const { id, ...budgetData } = req.body;
+    const budgetData = { ...req.body };
+
+    // Handle empty or missing fields
+    if (!budgetData.date || !budgetData.type || !budgetData.montant) {
+      return res.status(400).json({ 
+        message: 'La date, le type et le montant sont requis' 
+      });
+    }
+
+    // Convert and validate date
+    try {
+      budgetData.date = new Date(budgetData.date);
+      if (isNaN(budgetData.date.getTime())) {
+        return res.status(400).json({ message: 'Format de date invalide' });
+      }
+    } catch (error) {
+      return res.status(400).json({ message: 'Format de date invalide' });
+    }
+
+    // Convert and validate montant
+    budgetData.montant = Number(budgetData.montant);
+    if (isNaN(budgetData.montant)) {
+      return res.status(400).json({ message: 'Le montant doit être un nombre' });
+    }
+
+    // Create and save new budget entry
     const newBudget = new Budget(budgetData);
     await newBudget.save();
-    res.json(newBudget);
+
+    // Format date for response
+    const formattedBudget = {
+      ...newBudget.toObject(),
+      date: newBudget.date.toISOString().split('T')[0]
+    };
+
+    res.status(201).json(formattedBudget);
   } catch (error) {
-    res.status(400).json({ message: 'Error adding budget entry', error: error.message });
+    console.error('Error creating budget entry:', error);
+    res.status(400).json({ 
+      message: 'Erreur lors de la création de l\'entrée budgétaire',
+      error: error.message 
+    });
   }
 });
 
 app.put('/api/budget/:id', async (req, res) => {
   try {
+    const updateData = { ...req.body };
+
+    // Convert and validate date if present
+    if (updateData.date) {
+      try {
+        updateData.date = new Date(updateData.date);
+        if (isNaN(updateData.date.getTime())) {
+          return res.status(400).json({ message: 'Format de date invalide' });
+        }
+      } catch (error) {
+        return res.status(400).json({ message: 'Format de date invalide' });
+      }
+    }
+
+    // Convert and validate montant if present
+    if (updateData.montant !== undefined) {
+      updateData.montant = Number(updateData.montant);
+      if (isNaN(updateData.montant)) {
+        return res.status(400).json({ message: 'Le montant doit être un nombre' });
+      }
+
+      // Handle sign based on type
+      if (updateData.type === 'depense' && updateData.montant > 0) {
+        updateData.montant = -updateData.montant;
+      } else if (updateData.type === 'revenu' && updateData.montant < 0) {
+        updateData.montant = Math.abs(updateData.montant);
+      }
+    }
+
     const updatedBudget = await Budget.findByIdAndUpdate(
       req.params.id,
-      req.body,
-      { new: true }
-    );
+      updateData,
+      { new: true, runValidators: true }
+    ).lean();
 
     if (!updatedBudget) {
       return res.status(404).json({ message: 'Entrée budgétaire non trouvée' });
     }
 
-    res.json(updatedBudget);
+    // Format date for response
+    const formattedBudget = {
+      ...updatedBudget,
+      date: updatedBudget.date.toISOString().split('T')[0]
+    };
+
+    res.json(formattedBudget);
   } catch (error) {
-    res.status(500).json({ message: 'Erreur lors de la modification de l\'entrée budgétaire', error: error.message });
+    console.error('Error updating budget entry:', error);
+    res.status(400).json({ 
+      message: 'Erreur lors de la mise à jour de l\'entrée budgétaire',
+      error: error.message 
+    });
   }
 });
 
+app.delete('/api/budget/:id', async (req, res) => {
+  try {
+    const deletedBudget = await Budget.findByIdAndDelete(req.params.id);
+    
+    if (!deletedBudget) {
+      return res.status(404).json({ 
+        message: 'Entrée budgétaire non trouvée' 
+      });
+    }
+
+    res.json({ message: 'Entrée budgétaire supprimée avec succès' });
+  } catch (error) {
+    console.error('Error deleting budget entry:', error);
+    res.status(400).json({ 
+      message: 'Erreur lors de la suppression de l\'entrée budgétaire',
+      error: error.message 
+    });
+  }
+});
 
 // API Endpoints for Œuvres
 app.get('/api/oeuvres', async (req, res) => {
@@ -736,38 +911,88 @@ app.delete('/api/suivis/:id', async (req, res) => {
 // API Endpoints for Ventes
 app.get('/api/ventes', async (req, res) => {
   try {
-    const ventes = await Vente.find().populate('idClient').populate('idOeuvre');
-    res.json(ventes);
+    const ventes = await Vente.find()
+      .populate('idClient')
+      .populate('idOeuvre')
+      .lean();
+
+    // Format dates for client-side display
+    const formattedVentes = ventes.map(vente => ({
+      ...vente,
+      dateVente: vente.dateVente ? 
+        vente.dateVente.toISOString().split('T')[0] : null
+    }));
+
+    res.json(formattedVentes);
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching ventes' });
+    console.error('Error fetching ventes:', error);
+    res.status(500).json({ 
+      message: 'Erreur lors de la récupération des ventes',
+      error: error.message 
+    });
   }
 });
 
 app.post('/api/ventes', async (req, res) => {
   try {
-    const { id, dateVente, ...venteData } = req.body;
-    
-    // Validate and format date
-    const date = new Date(dateVente);
-    if (isNaN(date.getTime())) {
+    const venteData = { ...req.body };
+
+    // Validate required fields
+    if (!venteData.idClient || !venteData.idOeuvre || !venteData.dateVente) {
       return res.status(400).json({ 
-        message: 'Date de vente invalide' 
+        message: 'Le client, l\'oeuvre et la date sont requis' 
       });
     }
 
-    const newVente = new Vente({
-      ...venteData,
-      dateVente: date.toISOString()
-    });
+    // Convert and validate date
+    try {
+      venteData.dateVente = new Date(venteData.dateVente);
+      if (isNaN(venteData.dateVente.getTime())) {
+        return res.status(400).json({ message: 'Format de date invalide' });
+      }
+    } catch (error) {
+      return res.status(400).json({ message: 'Format de date invalide' });
+    }
 
+    // Create new vente
+    const newVente = new Vente(venteData);
     await newVente.save();
-    
+
+    // Create corresponding budget entry
+    const budgetEntry = new Budget({
+      date: venteData.dateVente,
+      categorie: 'Ventes',
+      description: `Vente: ${venteData.idOeuvre}`,
+      montant: venteData.prixVente,
+      type: 'revenu'
+    });
+    await budgetEntry.save();
+
+    // If commission exists, create a commission budget entry
+    if (venteData.commission) {
+      const commissionEntry = new Budget({
+        date: venteData.dateVente,
+        categorie: 'Commissions',
+        description: `Commission sur vente: ${venteData.idOeuvre}`,
+        montant: venteData.commission,
+        type: 'revenu'
+      });
+      await commissionEntry.save();
+    }
+
     // Populate the response
     const populatedVente = await Vente.findById(newVente._id)
       .populate('idClient')
-      .populate('idOeuvre');
-      
-    res.status(201).json(populatedVente);
+      .populate('idOeuvre')
+      .lean();
+
+    // Format date for response
+    const formattedVente = {
+      ...populatedVente,
+      dateVente: populatedVente.dateVente.toISOString().split('T')[0]
+    };
+
+    res.status(201).json(formattedVente);
   } catch (error) {
     console.error('Error creating vente:', error);
     res.status(400).json({ 
@@ -780,35 +1005,109 @@ app.post('/api/ventes', async (req, res) => {
 app.put('/api/ventes/:id', async (req, res) => {
   try {
     const updateData = { ...req.body };
-    
-    if (updateData.dateVente) {
-      const date = new Date(updateData.dateVente);
-      if (isNaN(date.getTime())) {
-        return res.status(400).json({ 
-          message: 'Date de vente invalide' 
-        });
-      }
-      // Set time to midnight UTC
-      date.setUTCHours(0, 0, 0, 0);
-      updateData.dateVente = date;
-    }
+    const originalVente = await Vente.findById(req.params.id);
 
-    const updatedVente = await Vente.findOneAndUpdate(
-      { _id: req.params.id },
-      updateData,
-      { new: true }
-    ).populate('idClient').populate('idOeuvre');
-
-    if (!updatedVente) {
+    if (!originalVente) {
       return res.status(404).json({ message: 'Vente non trouvée' });
     }
 
-    res.json(updatedVente);
+    // Convert and validate date if present
+    if (updateData.dateVente) {
+      try {
+        updateData.dateVente = new Date(updateData.dateVente);
+        if (isNaN(updateData.dateVente.getTime())) {
+          return res.status(400).json({ message: 'Format de date invalide' });
+        }
+      } catch (error) {
+        return res.status(400).json({ message: 'Format de date invalide' });
+      }
+    }
+
+    // Update vente
+    const updatedVente = await Vente.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    )
+    .populate('idClient')
+    .populate('idOeuvre')
+    .lean();
+
+    // Update or create budget entries
+    if (updateData.prixVente !== undefined || updateData.dateVente) {
+      await Budget.findOneAndUpdate(
+        { 
+          description: `Vente: ${originalVente.idOeuvre}`,
+          type: 'revenu',
+          categorie: 'Ventes'
+        },
+        {
+          date: updateData.dateVente || originalVente.dateVente,
+          montant: updateData.prixVente || originalVente.prixVente
+        },
+        { upsert: true }
+      );
+    }
+
+    // Handle commission updates
+    if (updateData.commission !== undefined || updateData.dateVente) {
+      if (updateData.commission) {
+        await Budget.findOneAndUpdate(
+          {
+            description: `Commission sur vente: ${originalVente.idOeuvre}`,
+            type: 'revenu',
+            categorie: 'Commissions'
+          },
+          {
+            date: updateData.dateVente || originalVente.dateVente,
+            montant: updateData.commission
+          },
+          { upsert: true }
+        );
+      }
+    }
+
+    // Format date for response
+    const formattedVente = {
+      ...updatedVente,
+      dateVente: updatedVente.dateVente.toISOString().split('T')[0]
+    };
+
+    res.json(formattedVente);
   } catch (error) {
     console.error('Error updating vente:', error);
-    res.status(400).json({
+    res.status(400).json({ 
       message: 'Erreur lors de la mise à jour de la vente',
-      error: error.message
+      error: error.message 
+    });
+  }
+});
+
+// Update the DELETE endpoint for ventes
+app.delete('/api/ventes/:id', async (req, res) => {
+  try {
+    const vente = await Vente.findById(req.params.id);
+    if (!vente) {
+      return res.status(404).json({ message: 'Vente non trouvée' });
+    }
+
+    // Delete the vente
+    await Vente.findByIdAndDelete(req.params.id);
+
+    // Delete related budget entries
+    await Budget.deleteMany({
+      $or: [
+        { description: `Vente: ${vente.idOeuvre}` },
+        { description: `Commission sur vente: ${vente.idOeuvre}` }
+      ]
+    });
+
+    res.json({ message: 'Vente et entrées budgétaires associées supprimées avec succès' });
+  } catch (error) {
+    console.error('Error deleting vente:', error);
+    res.status(400).json({ 
+      message: 'Erreur lors de la suppression de la vente',
+      error: error.message 
     });
   }
 });

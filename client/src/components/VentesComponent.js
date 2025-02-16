@@ -349,11 +349,13 @@ const VentesComponent = () => {
         .filter(o => o.availability !== 'sold' || o._id === editingVente?.idOeuvre)
         .map(oeuvre => ({
           value: oeuvre._id,
-          label: `${oeuvre.titre} (${oeuvre.prixVente}€)`
+          label: `${oeuvre.titre} (${oeuvre.prixVente}€) - ${oeuvre.idArtiste?.nom || 'Artiste inconnu'}`
         })),
       render: (value, item) => {
         const oeuvre = oeuvres.find(o => o._id === (value?._id || value));
-        return oeuvre ? `${oeuvre.titre} (${oeuvre.prixVente}€)` : '';
+        return oeuvre ? 
+          `${oeuvre.titre} (${oeuvre.prixVente}€) - ${oeuvre.idArtiste?.nom || 'Artiste inconnu'}` : 
+          '';
       },
       getValue: (value) => value?._id || value,
       onChange: async (value, item) => {
@@ -480,7 +482,7 @@ const VentesComponent = () => {
               .filter(o => o.availability !== 'sold')
               .map(oeuvre => (
                 <option key={oeuvre._id} value={oeuvre._id}>
-                  {oeuvre.titre} ({oeuvre.prixVente}€)
+                  {`${oeuvre.titre} (${oeuvre.prixVente}€) - ${oeuvre.idArtiste?.nom || 'Artiste inconnu'}`}
                 </option>
             ))}
           </select>

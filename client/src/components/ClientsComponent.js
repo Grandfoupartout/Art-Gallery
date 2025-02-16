@@ -122,27 +122,6 @@ const ClientsComponent = () => {
     handleComponentRefresh(fetchClients, setError);
   };
 
-  const handleSendEmail = async (client) => {
-    // Logic to send an email to name@email.com
-    console.log(`Sending email to ${client.nom} at name@email.com`);
-  };
-
-  useEffect(() => {
-    const checkDates = () => {
-      const now = new Date();
-      clients.forEach(client => {
-        const lastContactDate = new Date(client.dateDernierContact);
-        const sixMonthsAgo = new Date();
-        sixMonthsAgo.setMonth(now.getMonth() - 6);
-        if (lastContactDate < sixMonthsAgo) {
-          handleSendEmail(client);
-        }
-      });
-    };
-
-    checkDates();
-  }, [clients]);
-
   const columns = [
     { 
       key: 'nom', 
