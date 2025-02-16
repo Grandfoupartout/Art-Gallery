@@ -1249,12 +1249,65 @@ const translateToFrench = async (text) => {
   return text;
 };
 
-// Make sure to wait for the connection before starting the server
+// Create the server instance
+const serverInstance = http.createServer(app);
+
+// Add error handling for the server
+serverInstance.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Trying to close existing connection...`);
+    
+    // Try to close any existing connection
+    require('child_process').exec(`lsof -i :${PORT} | grep LISTEN | awk '{print $2}' | xargs kill -9`, (err) => {
+      if (err) {
+        console.error('Could not free up port:', err);
+        process.exit(1);
+      }
+      
+      // Retry starting the server
+      console.log('Retrying to start server...');
+      serverInstance.listen(PORT);
+    });
+  } else {
+    console.error('Server error:', error);
+    process.exit(1);
+  }
+});
+
+// Update the startServer function
 const startServer = async () => {
   try {
     await connectDB();
     
-    server.listen(PORT, () => {
+    // Add a check if port is in use before starting
+    const isPortAvailable = await new Promise((resolve) => {
+      const testServer = http.createServer();
+      testServer.once('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          resolve(false);
+        }
+      });
+      testServer.once('listening', () => {
+        testServer.close();
+        resolve(true);
+      });
+      testServer.listen(PORT);
+    });
+
+    if (!isPortAvailable) {
+      console.log(`Port ${PORT} is in use, attempting to free it...`);
+      await new Promise((resolve, reject) => {
+        require('child_process').exec(`lsof -i :${PORT} | grep LISTEN | awk '{print $2}' | xargs kill -9`, (err) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      });
+    }
+
+    serverInstance.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
     });
   } catch (error) {
@@ -1263,7 +1316,50 @@ const startServer = async () => {
   }
 };
 
-startServer();
+// Add graceful shutdown handling
+const gracefulShutdown = async (signal) => {
+  console.log(`Received ${signal}. Starting graceful shutdown...`);
+  
+  try {
+    // Close the server first to stop accepting new connections
+    await new Promise((resolve, reject) => {
+      serverInstance.close((err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
+    
+    // Then close MongoDB connection
+    await mongoose.connection.close();
+    
+    console.log('Graceful shutdown completed');
+    process.exit(0);
+  } catch (err) {
+    console.error('Error during graceful shutdown:', err);
+    process.exit(1);
+  }
+};
+
+// Update process handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  gracefulShutdown('uncaughtException');
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
+});
+
+// Start the server
+startServer().catch(err => {
+  console.error('Failed to start application:', err);
+  process.exit(1);
+});
 
 // Add connection error handlers
 mongoose.connection.on('error', err => {
