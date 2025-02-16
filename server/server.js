@@ -2,6 +2,12 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const http = require('http');
+const socket = require('socket.io');
+const { spawn } = require('child_process');
+const axios = require('axios');
+require('dotenv').config();
+const { chatWithBot, getChatHistory } = require('./services/chatService.js');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -11,10 +17,20 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // Connect to MongoDB
-mongoose.connect('mongodb://localhost:27017/galerie', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
+const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/galerie', {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+      socketTimeoutMS: 45000, // Close sockets after 45s
+    });
+    console.log('MongoDB Connected Successfully');
+  } catch (error) {
+    console.error('MongoDB connection error:', error);
+    process.exit(1);
+  }
+};
 
 const db = mongoose.connection;
 db.on('error', console.error.bind(console, 'connection error:'));
@@ -60,30 +76,53 @@ partenaireSchema.pre('save', async function(next) {
 
 const clientSchema = new mongoose.Schema({
   id: { type: String, unique: true },
-  nom: String,
-  coordonnees: String,
-  categorie: String,
+  nom: { type: String, required: true },
+  email: String,
+  telephone: String,
+  adresse: String,
+  preferences: String,
+  categorie: {
+    type: String,
+    enum: ['vip', 'regular', 'prospect', 'inactive']
+  },
+  idPartenaire: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Partenaire'
+  },
   historiqueAchats: String,
   derniereRelance: Date,
-  commentaires: String,
   dateDernierContact: Date,
+  commentaires: String
 });
 
 clientSchema.pre('save', async function(next) {
   if (!this.id) {
     this.id = `C${await getNextSequence('client_id')}`;
   }
+  
+  // Convert date strings to Date objects
+  if (this.derniereRelance && typeof this.derniereRelance === 'string') {
+    this.derniereRelance = new Date(this.derniereRelance);
+  }
+  if (this.dateDernierContact && typeof this.dateDernierContact === 'string') {
+    this.dateDernierContact = new Date(this.dateDernierContact);
+  }
+
   next();
 });
 
 const artisteSchema = new mongoose.Schema({
   id: { type: String, unique: true },
   nom: String,
+  prenom: String,
   statut: String,
-  coordonnees: String,
+  telephone: String,
+  email: String,
+  adresse: String,
+  ville: String,
+  codePostal: String,
   dateIntegration: Date,
-  commentaires: String,
-  lienCatalogue: String,
+  commentaires: String
 });
 
 artisteSchema.pre('save', async function(next) {
@@ -99,11 +138,22 @@ const budgetSchema = new mongoose.Schema({
   categorie: String,
   description: String,
   montant: Number,
+  type: {
+    type: String,
+    enum: ['revenu', 'depense'],
+    required: true
+  }
 });
 
-budgetSchema.pre('save', async function(next) {
-  if (!this.id) {
-    this.id = `B${await getNextSequence('budget_id')}`;
+// Add a pre-save middleware to handle positive/negative values
+budgetSchema.pre('save', function(next) {
+  // If it's a depense (expense), make sure the amount is negative
+  if (this.type === 'depense' && this.montant > 0) {
+    this.montant = -this.montant;
+  }
+  // If it's a revenu (income), make sure the amount is positive
+  if (this.type === 'revenu' && this.montant < 0) {
+    this.montant = Math.abs(this.montant);
   }
   next();
 });
@@ -143,13 +193,44 @@ oeuvreSchema.pre('save', async function(next) {
 
 const venteSchema = new mongoose.Schema({
   id: { type: String, unique: true },
-  date: Date,
-  idClient: { type: mongoose.Schema.Types.ObjectId, ref: 'Client' },
-  idOeuvre: { type: mongoose.Schema.Types.ObjectId, ref: 'Oeuvre' },
-  prixVente: Number,
-  commission: Number,
-  modePaiement: String,
-  commentaires: String,
+  dateVente: { 
+    type: Date,
+    required: true,
+    set: function(val) {
+      // Ensure date is stored in UTC
+      if (val) {
+        const date = new Date(val);
+        return date.toISOString();
+      }
+      return val;
+    }
+  },
+  idClient: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Client',
+    required: true
+  },
+  idOeuvre: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Oeuvre',
+    required: true
+  },
+  prixVente: { type: Number, required: true },
+  commission: { type: Number },
+  modePaiement: { type: String },
+  commentaires: { type: String }
+});
+
+// Add a pre-save middleware to validate dates
+venteSchema.pre('save', function(next) {
+  if (this.dateVente) {
+    const date = new Date(this.dateVente);
+    if (isNaN(date.getTime())) {
+      next(new Error('Date de vente invalide'));
+      return;
+    }
+  }
+  next();
 });
 
 venteSchema.pre('save', async function(next) {
@@ -200,6 +281,14 @@ const suiviSchema = new mongoose.Schema({
 });
 
 const Suivi = mongoose.model('Suivi', suiviSchema);
+
+// Add this with your other schemas
+const chatSettingsSchema = new mongoose.Schema({
+  forceDbMode: { type: Boolean, default: false },
+  lastUpdated: { type: Date, default: Date.now }
+});
+
+const ChatSettings = mongoose.model('ChatSettings', chatSettingsSchema);
 
 // API Endpoints for Partenaires (Partners)
 app.get('/api/partenaires', async (req, res) => {
@@ -256,39 +345,108 @@ app.delete('/api/partenaires/:id', async (req, res) => {
 // API Endpoints for Clients
 app.get('/api/clients', async (req, res) => {
   try {
-    const clients = await Client.find();
-    res.json(clients);
+    const clients = await Client.find()
+      .populate('idPartenaire')
+      .lean()
+      .exec();
+
+    // Format dates for client-side display
+    const formattedClients = clients.map(client => ({
+      ...client,
+      derniereRelance: client.derniereRelance ? 
+        client.derniereRelance.toISOString().split('T')[0] : null,
+      dateDernierContact: client.dateDernierContact ? 
+        client.dateDernierContact.toISOString().split('T')[0] : null
+    }));
+
+    res.json(formattedClients);
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching clients' });
+    console.error('Error fetching clients:', error);
+    res.status(500).json({ 
+      message: 'Erreur lors de la récupération des clients',
+      error: error.message 
+    });
   }
 });
 
 app.post('/api/clients', async (req, res) => {
   try {
-    const { id, ...clientData } = req.body;
+    const clientData = { ...req.body };
+
+    // Validate required fields
+    if (!clientData.nom) {
+      return res.status(400).json({ 
+        message: 'Le nom du client est requis' 
+      });
+    }
+
+    // Create new client
     const newClient = new Client(clientData);
     await newClient.save();
-    res.json(newClient);
+
+    // Populate partenaire data before sending response
+    const populatedClient = await Client.findById(newClient._id)
+      .populate('idPartenaire')
+      .lean();
+
+    // Format dates for response
+    const formattedClient = {
+      ...populatedClient,
+      derniereRelance: populatedClient.derniereRelance ? 
+        populatedClient.derniereRelance.toISOString().split('T')[0] : null,
+      dateDernierContact: populatedClient.dateDernierContact ? 
+        populatedClient.dateDernierContact.toISOString().split('T')[0] : null
+    };
+
+    res.status(201).json(formattedClient);
   } catch (error) {
-    res.status(400).json({ message: 'Error adding client', error: error.message });
+    console.error('Error creating client:', error);
+    res.status(400).json({ 
+      message: 'Erreur lors de la création du client',
+      error: error.message 
+    });
   }
 });
 
 app.put('/api/clients/:id', async (req, res) => {
   try {
+    const updateData = { ...req.body };
+
+    // Handle date conversions
+    if (updateData.derniereRelance) {
+      updateData.derniereRelance = new Date(updateData.derniereRelance);
+    }
+    if (updateData.dateDernierContact) {
+      updateData.dateDernierContact = new Date(updateData.dateDernierContact);
+    }
+
     const updatedClient = await Client.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      updateData,
       { new: true }
-    );
+    )
+    .populate('idPartenaire')
+    .lean();
+
     if (!updatedClient) {
       return res.status(404).json({ message: 'Client non trouvé' });
     }
-    res.json(updatedClient);
+
+    // Format dates for response
+    const formattedClient = {
+      ...updatedClient,
+      derniereRelance: updatedClient.derniereRelance ? 
+        updatedClient.derniereRelance.toISOString().split('T')[0] : null,
+      dateDernierContact: updatedClient.dateDernierContact ? 
+        updatedClient.dateDernierContact.toISOString().split('T')[0] : null
+    };
+
+    res.json(formattedClient);
   } catch (error) {
-    res.status(500).json({
-      message: 'Erreur lors de la modification du client',
-      error: error.message
+    console.error('Error updating client:', error);
+    res.status(400).json({ 
+      message: 'Erreur lors de la mise à jour du client',
+      error: error.message 
     });
   }
 });
@@ -587,21 +745,52 @@ app.get('/api/ventes', async (req, res) => {
 
 app.post('/api/ventes', async (req, res) => {
   try {
-    const { id, ...venteData } = req.body;
-    const newVente = new Vente(venteData);
+    const { id, dateVente, ...venteData } = req.body;
+    
+    // Validate and format date
+    const date = new Date(dateVente);
+    if (isNaN(date.getTime())) {
+      return res.status(400).json({ 
+        message: 'Date de vente invalide' 
+      });
+    }
+
+    const newVente = new Vente({
+      ...venteData,
+      dateVente: date.toISOString()
+    });
+
     await newVente.save();
-    res.json(newVente);
+    
+    // Populate the response
+    const populatedVente = await Vente.findById(newVente._id)
+      .populate('idClient')
+      .populate('idOeuvre');
+      
+    res.status(201).json(populatedVente);
   } catch (error) {
-    res.status(400).json({ message: 'Error adding vente', error: error.message });
+    console.error('Error creating vente:', error);
+    res.status(400).json({ 
+      message: 'Erreur lors de la création de la vente',
+      error: error.message 
+    });
   }
 });
 
 app.put('/api/ventes/:id', async (req, res) => {
   try {
-    // Create a copy of the request body and ensure date is properly handled
     const updateData = { ...req.body };
+    
     if (updateData.dateVente) {
-      updateData.dateVente = new Date(updateData.dateVente);
+      const date = new Date(updateData.dateVente);
+      if (isNaN(date.getTime())) {
+        return res.status(400).json({ 
+          message: 'Date de vente invalide' 
+        });
+      }
+      // Set time to midnight UTC
+      date.setUTCHours(0, 0, 0, 0);
+      updateData.dateVente = date;
     }
 
     const updatedVente = await Vente.findOneAndUpdate(
@@ -645,6 +834,531 @@ app.delete('/api/oeuvres/:id', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+// Add this with your other endpoints
+app.get('/api/status', (req, res) => {
+  res.json({
+    mongoConnected: mongoose.connection.readyState === 1,
+    collections: {
+      artistes: mongoose.connection.collections.artistes ? true : false,
+      oeuvres: mongoose.connection.collections.oeuvres ? true : false,
+      ventes: mongoose.connection.collections.ventes ? true : false,
+      clients: mongoose.connection.collections.clients ? true : false
+    }
+  });
 });
+
+// Add these routes
+app.get('/api/collections', (req, res) => {
+  try {
+    const collections = Object.keys(mongoose.connection.collections);
+    res.json(collections);
+  } catch (error) {
+    console.error('Error getting collections:', error);
+    res.status(500).json({ error: 'Error getting collections' });
+  }
+});
+
+app.get('/api/chat/settings', async (req, res) => {
+  try {
+    const settings = await ChatSettings.findOne() || await new ChatSettings().save();
+    res.json({
+      forceDbMode: settings.forceDbMode,
+      mongoConnected: mongoose.connection.readyState === 1
+    });
+  } catch (error) {
+    console.error('Error getting chat settings:', error);
+    res.status(500).json({ error: 'Error getting chat settings' });
+  }
+});
+
+app.post('/api/chat/toggleForceMode', async (req, res) => {
+  try {
+    let settings = await ChatSettings.findOne() || new ChatSettings();
+    settings.forceDbMode = !settings.forceDbMode;
+    settings.lastUpdated = new Date();
+    await settings.save();
+    
+    io.emit('force mode changed', settings.forceDbMode);
+    
+    res.json({ 
+      forceDbMode: settings.forceDbMode,
+      message: settings.forceDbMode ? 
+        'Mode base de données activé' : 
+        'Mode IA + base de données activé'
+    });
+  } catch (error) {
+    console.error('Erreur lors du changement de mode:', error);
+    res.status(500).json({ 
+      error: 'Erreur lors du changement de mode',
+      message: 'Une erreur est survenue lors du changement de mode'
+    });
+  }
+});
+
+// Chat history endpoints
+app.get('/api/chat/history/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const history = await getChatHistory(sessionId);
+    const messages = await history.getMessages();
+    res.json({ messages });
+  } catch (error) {
+    console.error('Error getting chat history:', error);
+    res.status(500).json({ error: 'Error retrieving chat history' });
+  }
+});
+
+app.post('/api/chat/history/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { message } = req.body;
+    const history = await getChatHistory(sessionId);
+    await history.addMessage(message);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error saving chat message:', error);
+    res.status(500).json({ error: 'Error saving chat message' });
+  }
+});
+
+// After creating the Express app, create HTTP and Socket.IO servers
+const server = http.createServer(app);
+const io = socket(server, {
+  cors: {
+    origin: "http://localhost:3001",
+    methods: ["GET", "POST"]
+  }
+});
+
+// Add these helper functions for database queries
+const queryCollections = async (collections, query) => {
+  const results = [];
+  
+  for (const collection of collections) {
+    const model = mongoose.model(collection.charAt(0).toUpperCase() + collection.slice(1));
+    
+    // Build query based on collection fields
+    const queryFields = getCollectionFields(collection);
+    const searchQuery = buildSearchQuery(queryFields, query);
+    
+    const data = await model.find(searchQuery)
+      .limit(20)
+      .sort({ dateCreation: -1, date: -1, _id: -1 });
+      
+    results.push(...data.map(doc => ({
+      ...doc.toObject(),
+      _collection: collection // Add collection name for reference
+    })));
+  }
+  return results;
+};
+
+const getCollectionFields = (collection) => {
+  const fieldMappings = {
+    artistes: ['nom', 'prenom', 'statut', 'commentaires'],
+    oeuvres: ['titre', 'technique', 'dimensions', 'statut', 'commentaires'],
+    ventes: ['date', 'prixVente', 'modePaiement', 'commentaires'],
+    clients: ['nom', 'categorie', 'commentaires']
+  };
+  return fieldMappings[collection] || [];
+};
+
+const buildSearchQuery = (fields, searchText) => {
+  const searchRegex = { $regex: searchText, $options: 'i' };
+  return {
+    $or: [
+      ...fields.map(field => ({ [field]: searchRegex })),
+      // Add numeric search for relevant fields
+      ...(isNumeric(searchText) ? [
+        { prixVente: Number(searchText) },
+        { commission: Number(searchText) }
+      ] : []),
+      // Add date search if text is a date
+      ...(isDate(searchText) ? [
+        { date: parseDate(searchText) },
+        { dateCreation: parseDate(searchText) },
+        { dateVente: parseDate(searchText) }
+      ] : [])
+    ]
+  };
+};
+
+// Add these helper functions for French natural language processing
+const processNaturalLanguageQuery = (query) => {
+  // French keywords and patterns for art gallery queries
+  const queryPatterns = {
+    artistes: {
+      keywords: [
+        'artiste', 'peintre', 'sculpteur', 'créateur', 'auteur',
+        'qui a créé', 'qui a fait', 'réalisé par'
+      ],
+      attributes: {
+        'nom': ['nom', 'appelle', 'nommé', 'qui est'],
+        'statut': ['statut', 'situation', 'état', 'activité'],
+        'ville': ['ville', 'habite', 'localisation', 'basé'],
+        'style': ['style', 'technique', 'méthode', 'approche']
+      }
+    },
+    oeuvres: {
+      keywords: [
+        'oeuvre', 'tableau', 'peinture', 'sculpture', 'création',
+        'collection', 'galerie', 'exposition', 'montrez'
+      ],
+      attributes: {
+        'titre': ['titre', 'nommé', 'appelé', 'nom'],
+        'prix': ['prix', 'coûte', 'valeur', 'euros', 'vendu pour'],
+        'année': ['année', 'date', 'créé', 'réalisé'],
+        'statut': ['disponible', 'vendu', 'réservé', 'état']
+      }
+    },
+    ventes: {
+      keywords: [
+        'vente', 'transaction', 'achat', 'vendu', 'revenus',
+        'combien', 'montant', 'chiffre'
+      ],
+      attributes: {
+        'date': ['quand', 'date', 'période', 'mois', 'année'],
+        'prix': ['prix', 'montant', 'euros', 'somme'],
+        'client': ['qui', 'acheteur', 'client', 'acquéreur']
+      }
+    }
+  };
+
+  // Extract intent and context
+  const intent = {
+    collection: null,
+    attributes: [],
+    filters: {},
+    timeframe: extractTimeframe(query),
+    sorting: extractSorting(query)
+  };
+
+  // Determine primary collection
+  for (const [collection, patterns] of Object.entries(queryPatterns)) {
+    if (patterns.keywords.some(keyword => query.toLowerCase().includes(keyword))) {
+      intent.collection = collection;
+      
+      // Extract attributes and filters
+      for (const [attr, keywords] of Object.entries(patterns.attributes)) {
+        if (keywords.some(keyword => query.toLowerCase().includes(keyword))) {
+          intent.attributes.push(attr);
+        }
+      }
+      break;
+    }
+  }
+
+  return intent;
+};
+
+const formatNaturalResponse = (results, query, collection) => {
+  if (!results || results.length === 0) {
+    return `Je suis désolé(e), mais je n'ai pas trouvé d'informations correspondant à votre demande concernant ${translateCollection(collection)}.
+    
+Puis-je reformuler votre recherche différemment ?`;
+  }
+
+  // Format responses based on collection and query type
+  const response = {
+    greeting: 'Voici ce que j\'ai trouvé :',
+    mainContent: '',
+    details: '',
+    followUp: ''
+  };
+
+  switch (collection) {
+    case 'artistes':
+      return formatArtistResponse(results, query, response);
+    case 'oeuvres':
+      return formatArtworkResponse(results, query, response);
+    case 'ventes':
+      return formatSaleResponse(results, query, response);
+    default:
+      return formatGenericResponse(results, collection, response);
+  }
+};
+
+const formatArtistResponse = (results, query, response) => {
+  if (results.length === 1) {
+    const artist = results[0];
+    response.mainContent = `J'ai trouvé les informations sur l'artiste ${artist.prenom} ${artist.nom}.
+    
+${artist.statut ? `Statut : ${artist.statut}` : ''}
+${artist.ville ? `Basé(e) à ${artist.ville}` : ''}
+${artist.commentaires ? `\nNote : ${artist.commentaires}` : ''}`;
+
+    response.followUp = `\nSouhaitez-vous voir les œuvres de cet artiste ?`;
+  } else {
+    response.mainContent = `J'ai trouvé ${results.length} artistes correspondant à votre recherche :\n\n` +
+      results.map(artist => 
+        `• ${artist.prenom} ${artist.nom}${artist.ville ? ` (${artist.ville})` : ''}`
+      ).join('\n');
+
+    response.followUp = `\nSouhaitez-vous des informations détaillées sur l'un de ces artistes ?`;
+  }
+
+  return Object.values(response).filter(Boolean).join('\n\n');
+};
+
+// Add helper functions for French formatting
+const formatFrenchNumber = (number) => {
+  return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ').replace('.', ',');
+};
+
+const formatFrenchDate = (date) => {
+  return new Date(date).toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+};
+
+const translateCollection = (collection) => {
+  const translations = {
+    artistes: 'les artistes',
+    oeuvres: 'les œuvres',
+    ventes: 'les ventes',
+    clients: 'les clients'
+  };
+  return translations[collection] || collection;
+};
+
+// Update the socket connection handler
+io.on('connection', (socket) => {
+  console.log('Client connecté');
+
+  socket.on('chat message', async (data) => {
+    try {
+      const { content, sessionId, collections } = data;
+      
+      // Validate input
+      if (!content || !sessionId || !collections) {
+        throw new Error('Paramètres manquants');
+      }
+
+      const response = await chatWithBot(sessionId, content, collections);
+      
+      socket.emit('chat response', {
+        response: response.response,
+        dbResults: response.dbResults,
+        collections: response.collections
+      });
+    } catch (error) {
+      console.error('Chat error:', error);
+      socket.emit('error', { 
+        message: error.message || 'Désolé, une erreur est survenue lors du traitement de votre demande.' 
+      });
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Client déconnecté');
+  });
+});
+
+// New helper functions for French art-specific formatting
+const formatFrenchArtResponse = (results, query, collection) => {
+  const response = {
+    greeting: 'Bonjour,\n\n',
+    content: '',
+    details: '',
+    closing: '\n\nPuis-je vous apporter d\'autres précisions ?'
+  };
+
+  switch (collection) {
+    case 'artistes':
+      response.content = formatFrenchArtistResponse(results);
+      break;
+    case 'oeuvres':
+      response.content = formatFrenchArtworkResponse(results);
+      break;
+    case 'ventes':
+      response.content = formatFrenchSalesResponse(results);
+      break;
+    default:
+      response.content = formatFrenchGeneralResponse(results);
+  }
+
+  return `${response.greeting}${response.content}${response.details}${response.closing}`;
+};
+
+const formatFrenchArtistResponse = (results) => {
+  if (results.length === 1) {
+    const artiste = results[0];
+    return `J'ai trouvé les informations concernant l'artiste ${artiste.prenom} ${artiste.nom} :
+
+• Statut : ${artiste.statut || 'Non spécifié'}
+• Localisation : ${artiste.ville || 'Non spécifiée'}
+${artiste.technique ? `• Technique privilégiée : ${artiste.technique}` : ''}
+${artiste.commentaires ? `\nNote : ${artiste.commentaires}` : ''}`;
+  }
+
+  return `J'ai trouvé ${results.length} artistes correspondant à votre recherche :
+
+${results.map((artiste, index) => 
+    `${index + 1}. ${artiste.prenom} ${artiste.nom}${artiste.ville ? ` (${artiste.ville})` : ''}`
+  ).join('\n')}`;
+};
+
+const formatFrenchArtworkResponse = (results) => {
+  if (results.length === 1) {
+    const oeuvre = results[0];
+    return `Voici les détails de l'œuvre « ${oeuvre.titre} » :
+
+• Création : ${oeuvre.anneeCreation || 'Date non spécifiée'}
+• Technique : ${oeuvre.technique || 'Non spécifiée'}
+• Dimensions : ${oeuvre.dimensions || 'Non spécifiées'}
+• Statut : ${translateArtworkStatus(oeuvre.statut)}
+${oeuvre.prixVente ? `• Prix : ${formatFrenchPrice(oeuvre.prixVente)}` : ''}`;
+  }
+
+  return `J'ai trouvé ${results.length} œuvres correspondant à votre recherche :
+
+${results.map((oeuvre, index) => 
+    `${index + 1}. « ${oeuvre.titre} » (${oeuvre.anneeCreation || 'Date non spécifiée'})`
+  ).join('\n')}`;
+};
+
+const translateArtworkStatus = (status) => {
+  const statusMap = {
+    'available': 'Disponible',
+    'sold': 'Vendue',
+    'reserved': 'Réservée'
+  };
+  return statusMap[status] || status;
+};
+
+const formatFrenchPrice = (price) => {
+  return new Intl.NumberFormat('fr-FR', {
+    style: 'currency',
+    currency: 'EUR'
+  }).format(price);
+};
+
+// Add these helper functions to your existing code
+const detectEnglishLanguage = (text) => {
+  // Simple detection based on common English words
+  const englishWords = ['the', 'is', 'are', 'what', 'who', 'where', 'when', 'how'];
+  const words = text.toLowerCase().split(' ');
+  return words.some(word => englishWords.includes(word));
+};
+
+const translateToFrench = async (text) => {
+  // Implement translation logic here
+  // For now, return original text
+  return text;
+};
+
+// Make sure to wait for the connection before starting the server
+const startServer = async () => {
+  try {
+    await connectDB();
+    
+    server.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
+
+// Add connection error handlers
+mongoose.connection.on('error', err => {
+  console.error('MongoDB connection error:', err);
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.log('MongoDB disconnected');
+});
+
+// Handle process termination
+process.on('SIGINT', async () => {
+  try {
+    await mongoose.connection.close();
+    console.log('MongoDB connection closed through app termination');
+    process.exit(0);
+  } catch (err) {
+    console.error('Error during MongoDB connection closure:', err);
+    process.exit(1);
+  }
+});
+
+const determineCollections = (query, activeCollections) => {
+  const keywords = {
+    artistes: [
+      'artiste', 'artist', 'créateur', 'creator', 'auteur',
+      'peintre', 'sculpteur', 'photographe'
+    ],
+    oeuvres: [
+      'oeuvre', 'artwork', 'piece', 'tableau', 'sculpture',
+      'photo', 'création', 'exposition'
+    ],
+    ventes: [
+      'vente', 'sale', 'transaction', 'revenue', 'achat',
+      'prix', 'commission', 'paiement'
+    ],
+    clients: [
+      'client', 'acheteur', 'buyer', 'collectionneur',
+      'collector', 'contact', 'prospect'
+    ]
+  };
+
+  // Check for explicit collection mentions
+  const mentionedCollections = activeCollections.filter(collection => 
+    query.toLowerCase().includes(collection.toLowerCase())
+  );
+
+  if (mentionedCollections.length > 0) {
+    return mentionedCollections;
+  }
+
+  // Check for keyword matches
+  return activeCollections.filter(collection => 
+    keywords[collection]?.some(keyword => 
+      query.toLowerCase().includes(keyword.toLowerCase())
+    )
+  );
+};
+
+const determineDataType = (results) => {
+  if (!results || results.length === 0) return 'empty';
+  
+  const firstRecord = results[0];
+  
+  // Check for date fields
+  const hasDate = Object.entries(firstRecord).some(([key, value]) => 
+    key.toLowerCase().includes('date') && value instanceof Date
+  );
+  
+  // Check for numerical fields
+  const hasNumbers = Object.entries(firstRecord).some(([key, value]) => 
+    ['prixVente', 'commission', 'montant'].includes(key) && 
+    typeof value === 'number'
+  );
+  
+  if (hasDate) return 'temporal';
+  if (hasNumbers) return 'numerical';
+  return 'textual';
+};
+
+const formatErrorMessage = (error, collections) => {
+  return {
+    message: `Je suis désolé, une erreur s'est produite : ${error.message}`,
+    suggestion: 'Voici les collections disponibles :\n' +
+      collections.map(c => `- ${translateCollection(c)}`).join('\n') +
+      '\n\nQue souhaitez-vous consulter ?'
+  };
+};
+
+const translateErrorType = (errorType) => {
+  const errorTranslations = {
+    'not_found': 'Information non trouvée',
+    'invalid_query': 'Requête invalide',
+    'database_error': 'Erreur de base de données',
+    'connection_error': 'Erreur de connexion'
+  };
+  return errorTranslations[errorType] || 'Erreur inconnue';
+};

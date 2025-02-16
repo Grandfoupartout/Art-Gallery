@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, 
   PieChart, Pie, Cell, LineChart, Line, ResponsiveContainer,
   AreaChart, Area
 } from 'recharts';
 import axios from 'axios';
+import { exportComponentAsJPEG, exportComponentAsPNG } from 'react-component-export-image';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#FF6B6B', '#4CAF50'];
 
@@ -17,6 +18,14 @@ const TableauDeBordComponent = () => {
     topArtistes: [],
     performanceData: []
   });
+
+  const chartRefs = {
+    clientChart: useRef(),
+    venteChart: useRef(),
+    revenueChart: useRef(),
+    artisteChart: useRef(),
+    oeuvreChart: useRef()
+  };
 
   useEffect(() => {
     fetchAllData();
@@ -99,13 +108,60 @@ const TableauDeBordComponent = () => {
     });
   };
 
+  const handleExport = (chartRef, format, name) => {
+    if (format === 'PNG') {
+      exportComponentAsPNG(chartRef, {
+        fileName: `${name}_${new Date().toISOString().split('T')[0]}`
+      });
+    } else {
+      exportComponentAsJPEG(chartRef, {
+        fileName: `${name}_${new Date().toISOString().split('T')[0]}`
+      });
+    }
+  };
+
+  const ExportButtons = ({ chartRef, name }) => (
+    <div style={{ 
+      display: 'flex', 
+      gap: '10px',
+      justifyContent: 'flex-end',
+      marginBottom: '10px'
+    }}>
+      <button
+        onClick={() => handleExport(chartRef, 'PNG', name)}
+        style={{
+          padding: '8px 12px',
+          borderRadius: '4px',
+          border: '1px solid #ddd',
+          backgroundColor: '#fff',
+          cursor: 'pointer'
+        }}
+      >
+        <i className="fas fa-download"></i> PNG
+      </button>
+      <button
+        onClick={() => handleExport(chartRef, 'JPEG', name)}
+        style={{
+          padding: '8px 12px',
+          borderRadius: '4px',
+          border: '1px solid #ddd',
+          backgroundColor: '#fff',
+          cursor: 'pointer'
+        }}
+      >
+        <i className="fas fa-download"></i> JPEG
+      </button>
+    </div>
+  );
+
   return (
     <div style={{ padding: '20px' }}>
       <h2>Tableau de Bord</h2>
       
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))', gap: '20px' }}>
         {/* Répartition des clients */}
-        <div className="chart-container">
+        <div className="chart-container" ref={chartRefs.clientChart}>
+          <ExportButtons chartRef={chartRefs.clientChart} name="clients" />
           <h3>Répartition des Clients par Catégorie</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
@@ -129,7 +185,8 @@ const TableauDeBordComponent = () => {
         </div>
 
         {/* Évolution des ventes */}
-        <div className="chart-container">
+        <div className="chart-container" ref={chartRefs.venteChart}>
+          <ExportButtons chartRef={chartRefs.venteChart} name="ventes" />
           <h3>Évolution des Ventes</h3>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={stats.venteStats}>
@@ -144,7 +201,8 @@ const TableauDeBordComponent = () => {
         </div>
 
         {/* Revenus et commissions */}
-        <div className="chart-container">
+        <div className="chart-container" ref={chartRefs.revenueChart}>
+          <ExportButtons chartRef={chartRefs.revenueChart} name="revenus" />
           <h3>Revenus et Commissions</h3>
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={stats.revenueStats}>
@@ -160,7 +218,8 @@ const TableauDeBordComponent = () => {
         </div>
 
         {/* Top artistes */}
-        <div className="chart-container">
+        <div className="chart-container" ref={chartRefs.artisteChart}>
+          <ExportButtons chartRef={chartRefs.artisteChart} name="artistes" />
           <h3>Top 5 Artistes par Revenus</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={stats.topArtistes}>
@@ -176,7 +235,8 @@ const TableauDeBordComponent = () => {
         </div>
 
         {/* Statuts des œuvres */}
-        <div className="chart-container">
+        <div className="chart-container" ref={chartRefs.oeuvreChart}>
+          <ExportButtons chartRef={chartRefs.oeuvreChart} name="oeuvres" />
           <h3>Statuts des Œuvres</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>

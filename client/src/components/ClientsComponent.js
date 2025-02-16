@@ -11,6 +11,7 @@ const ClientsComponent = () => {
     nom: '',
     coordonnees: '',
     categorie: '',
+    idPartenaire: '',
     historiqueAchats: '',
     derniereRelance: '',
     commentaires: '',
@@ -18,9 +19,18 @@ const ClientsComponent = () => {
   });
   const [error, setError] = useState('');
   const { theme } = useTheme();
+  const [partenaires, setPartenaires] = useState([]);
+
+  const categoryOptions = [
+    { value: 'vip', label: 'VIP' },
+    { value: 'regular', label: 'Régulier' },
+    { value: 'prospect', label: 'Prospect' },
+    { value: 'inactive', label: 'Inactif' }
+  ];
 
   useEffect(() => {
     fetchClients();
+    fetchPartenaires();
   }, []);
 
   const fetchClients = async () => {
@@ -30,6 +40,15 @@ const ClientsComponent = () => {
       setClients(response.data);
     } catch (error) {
       handleComponentError(error, setError);
+    }
+  };
+
+  const fetchPartenaires = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/api/partenaires');
+      setPartenaires(response.data);
+    } catch (error) {
+      setError('Erreur lors du chargement des partenaires: ' + error.message);
     }
   };
 
@@ -50,6 +69,7 @@ const ClientsComponent = () => {
         [name]: value
       }));
     }
+    setError('');
   };
 
   const handleEdit = async (client) => {
@@ -86,6 +106,7 @@ const ClientsComponent = () => {
         nom: '',
         coordonnees: '',
         categorie: '',
+        idPartenaire: '',
         historiqueAchats: '',
         derniereRelance: '',
         commentaires: '',
@@ -123,48 +144,111 @@ const ClientsComponent = () => {
   }, [clients]);
 
   const columns = [
-    { key: 'nom', label: 'Nom' },
-    { key: 'email', label: 'Email' },
-    { key: 'telephone', label: 'Téléphone' },
-    { key: 'adresse', label: 'Adresse' },
     { 
-      key: 'dateInscription', 
-      label: 'Date d\'inscription',
-      render: (value) => value ? new Date(value).toLocaleDateString() : ''
+      key: 'nom', 
+      label: 'Nom',
+      required: true 
     },
-    { key: 'commentaires', label: 'Commentaires' },
+    { 
+      key: 'email', 
+      label: 'Email' 
+    },
+    { 
+      key: 'telephone', 
+      label: 'Téléphone' 
+    },
+    { 
+      key: 'adresse', 
+      label: 'Adresse' 
+    },
+    {
+      key: 'categorie',
+      label: 'Catégorie',
+      type: 'select',
+      options: categoryOptions,
+      render: (value, row, isEditing) => {
+        if (!isEditing) {
+          const option = categoryOptions.find(opt => opt.value === value);
+          return option ? option.label : value || 'Non défini';
+        }
+
+        return (
+          <select
+            name="categorie"
+            value={value || ''}
+            onChange={(e) => handleInputChange(e, row)}
+            style={{
+              padding: '10px',
+              borderRadius: '4px',
+              border: `1px solid ${theme.colors.border}`,
+              backgroundColor: theme.colors.input,
+              color: theme.colors.text,
+              width: '100%'
+            }}
+          >
+            <option value="">Sélectionner une catégorie</option>
+            {categoryOptions.map(option => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        );
+      }
+    },
+    {
+      key: 'idPartenaire',
+      label: 'Partenaire',
+      type: 'select',
+      options: partenaires.map(p => ({ value: p._id, label: p.nom })),
+      render: (value, row, isEditing) => {
+        if (!isEditing) {
+          const partenaire = partenaires.find(p => p._id === value);
+          return partenaire ? partenaire.nom : 'Non assigné';
+        }
+
+        return (
+          <select
+            name="idPartenaire"
+            value={value || ''}
+            onChange={(e) => handleInputChange(e, row)}
+            style={{
+              padding: '10px',
+              borderRadius: '4px',
+              border: `1px solid ${theme.colors.border}`,
+              backgroundColor: theme.colors.input,
+              color: theme.colors.text,
+              width: '100%'
+            }}
+          >
+            <option value="">Sélectionner un partenaire</option>
+            {partenaires.map(partenaire => (
+              <option key={partenaire._id} value={partenaire._id}>
+                {partenaire.nom}
+              </option>
+            ))}
+          </select>
+        );
+      }
+    },
     {
       key: 'dateDernierContact',
       label: 'Dernier Contact',
       type: 'date',
-      getValue: (value) => {
-        if (!value) return '';
-        try {
-          const date = new Date(value);
-          if (isNaN(date.getTime())) return '';
-          return date.toISOString().split('T')[0];
-        } catch (error) {
-          return '';
-        }
-      },
       render: (value, row, isEditing) => {
         if (!isEditing) {
           if (!value) return 'Non défini';
           try {
             const date = new Date(value);
-            if (isNaN(date.getTime())) return 'Date invalide';
-            return date.toLocaleDateString('fr-FR'); // Display format: dd/mm/yyyy
+            return isNaN(date.getTime()) 
+              ? 'Date invalide'
+              : date.toLocaleDateString('fr-FR', {
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit'
+                });
           } catch (error) {
             return 'Date invalide';
-          }
-        }
-
-        // Handle editing mode
-        let dateValue = '';
-        if (value) {
-          const date = new Date(value);
-          if (!isNaN(date.getTime())) {
-            dateValue = date.toISOString().split('T')[0];
           }
         }
 
@@ -172,7 +256,7 @@ const ClientsComponent = () => {
           <input
             type="date"
             name="dateDernierContact"
-            value={dateValue}
+            value={value ? new Date(value).toISOString().split('T')[0] : ''}
             onChange={(e) => handleInputChange(e, row)}
             style={{
               padding: '10px',
@@ -190,34 +274,20 @@ const ClientsComponent = () => {
       key: 'derniereRelance',
       label: 'Dernière Relance',
       type: 'date',
-      getValue: (value) => {
-        if (!value) return '';
-        try {
-          const date = new Date(value);
-          if (isNaN(date.getTime())) return '';
-          return date.toISOString().split('T')[0];
-        } catch (error) {
-          return '';
-        }
-      },
       render: (value, row, isEditing) => {
         if (!isEditing) {
           if (!value) return 'Non défini';
           try {
             const date = new Date(value);
-            if (isNaN(date.getTime())) return 'Date invalide';
-            return date.toLocaleDateString('fr-FR'); // Display format: dd/mm/yyyy
+            return isNaN(date.getTime()) 
+              ? 'Date invalide'
+              : date.toLocaleDateString('fr-FR', {
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit'
+                });
           } catch (error) {
             return 'Date invalide';
-          }
-        }
-
-        // Handle editing mode
-        let dateValue = '';
-        if (value) {
-          const date = new Date(value);
-          if (!isNaN(date.getTime())) {
-            dateValue = date.toISOString().split('T')[0];
           }
         }
 
@@ -225,7 +295,7 @@ const ClientsComponent = () => {
           <input
             type="date"
             name="derniereRelance"
-            value={dateValue}
+            value={value ? new Date(value).toISOString().split('T')[0] : ''}
             onChange={(e) => handleInputChange(e, row)}
             style={{
               padding: '10px',
@@ -234,6 +304,31 @@ const ClientsComponent = () => {
               backgroundColor: theme.colors.input,
               color: theme.colors.text,
               width: '100%'
+            }}
+          />
+        );
+      }
+    },
+    { 
+      key: 'commentaires', 
+      label: 'Commentaires',
+      render: (value, row, isEditing) => {
+        if (!isEditing) return value || '';
+
+        return (
+          <textarea
+            name="commentaires"
+            value={value || ''}
+            onChange={(e) => handleInputChange(e, row)}
+            style={{
+              padding: '10px',
+              borderRadius: '4px',
+              border: `1px solid ${theme.colors.border}`,
+              backgroundColor: theme.colors.input,
+              color: theme.colors.text,
+              width: '100%',
+              minHeight: '60px',
+              resize: 'vertical'
             }}
           />
         );
@@ -282,7 +377,7 @@ const ClientsComponent = () => {
       }}>
         <form style={{ 
           display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', 
+          gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', 
           gap: '15px',
           alignItems: 'end'
         }}>
@@ -407,6 +502,26 @@ const ClientsComponent = () => {
             }}
           />
 
+          <select
+            name="idPartenaire"
+            value={newClient.idPartenaire}
+            onChange={handleInputChange}
+            style={{
+              padding: '10px',
+              borderRadius: '4px',
+              border: `1px solid ${theme.colors.border}`,
+              backgroundColor: theme.colors.input,
+              color: theme.colors.text
+            }}
+          >
+            <option value="">Sélectionner un partenaire</option>
+            {partenaires.map(partenaire => (
+              <option key={partenaire._id} value={partenaire._id}>
+                {partenaire.nom}
+              </option>
+            ))}
+          </select>
+
           <button
             type="button"
             onClick={handleSubmit}
@@ -439,7 +554,8 @@ const ClientsComponent = () => {
                   preferences: '',
                   dateDernierContact: '',
                   derniereRelance: '',
-                  commentaires: ''
+                  commentaires: '',
+                  idPartenaire: ''
                 });
               }}
               style={{

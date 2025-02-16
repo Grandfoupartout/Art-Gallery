@@ -9,11 +9,15 @@ const ArtistesComponent = () => {
   const [editingArtiste, setEditingArtiste] = useState(null);
   const [newArtiste, setNewArtiste] = useState({
     nom: '',
+    prenom: '',
     statut: '',
-    coordonnees: '',
+    telephone: '',
+    email: '',
+    adresse: '',
+    ville: '',
+    codePostal: '',
     dateIntegration: '',
-    commentaires: '',
-    lienCatalogue: ''
+    commentaires: ''
   });
   const [error, setError] = useState('');
 
@@ -98,11 +102,15 @@ const ArtistesComponent = () => {
         setArtistes([...artistes, response.data]);
         setNewArtiste({
           nom: '',
+          prenom: '',
           statut: '',
-          coordonnees: '',
+          telephone: '',
+          email: '',
+          adresse: '',
+          ville: '',
+          codePostal: '',
           dateIntegration: '',
-          commentaires: '',
-          lienCatalogue: ''
+          commentaires: ''
         });
       }
       setError('');
@@ -131,6 +139,7 @@ const ArtistesComponent = () => {
 
   const columns = [
     { key: 'nom', label: 'Nom' },
+    { key: 'prenom', label: 'Prénom' },
     { 
       key: 'statut', 
       label: 'Statut',
@@ -163,22 +172,17 @@ const ArtistesComponent = () => {
         );
       }
     },
-    { key: 'coordonnees', label: 'Coordonnées' },
+    { key: 'telephone', label: 'Téléphone' },
+    { key: 'email', label: 'Email' },
+    { key: 'adresse', label: 'Adresse' },
+    { key: 'ville', label: 'Ville' },
+    { key: 'codePostal', label: 'Code Postal' },
     { 
       key: 'dateIntegration', 
       label: 'Date d\'intégration',
       render: (value) => value ? new Date(value).toLocaleDateString() : ''
     },
-    { key: 'commentaires', label: 'Commentaires' },
-    { 
-      key: 'lienCatalogue', 
-      label: 'Catalogue',
-      render: (value) => value ? (
-        <a href={value} target="_blank" rel="noopener noreferrer">
-          Voir le catalogue
-        </a>
-      ) : ''
-    }
+    { key: 'commentaires', label: 'Commentaires' }
   ];
 
   return (
@@ -229,7 +233,7 @@ const ArtistesComponent = () => {
           <input
             type="text"
             name="nom"
-            placeholder="Nom de l'artiste *"
+            placeholder="Nom *"
             value={newArtiste.nom}
             onChange={handleInputChange}
             style={{
@@ -240,6 +244,21 @@ const ArtistesComponent = () => {
               color: theme.colors.text
             }}
             required
+          />
+
+          <input
+            type="text"
+            name="prenom"
+            placeholder="Prénom"
+            value={newArtiste.prenom}
+            onChange={handleInputChange}
+            style={{
+              padding: '10px',
+              borderRadius: '4px',
+              border: `1px solid ${theme.colors.border}`,
+              backgroundColor: theme.colors.input,
+              color: theme.colors.text
+            }}
           />
 
           <select
@@ -265,9 +284,69 @@ const ArtistesComponent = () => {
 
           <input
             type="tel"
-            name="coordonnees"
-            placeholder="Coordonnées"
-            value={newArtiste.coordonnees}
+            name="telephone"
+            placeholder="Téléphone"
+            value={newArtiste.telephone}
+            onChange={handleInputChange}
+            style={{
+              padding: '10px',
+              borderRadius: '4px',
+              border: `1px solid ${theme.colors.border}`,
+              backgroundColor: theme.colors.input,
+              color: theme.colors.text
+            }}
+          />
+
+          <input
+            type="email"
+            name="email"
+            placeholder="Email"
+            value={newArtiste.email}
+            onChange={handleInputChange}
+            style={{
+              padding: '10px',
+              borderRadius: '4px',
+              border: `1px solid ${theme.colors.border}`,
+              backgroundColor: theme.colors.input,
+              color: theme.colors.text
+            }}
+          />
+
+          <input
+            type="text"
+            name="adresse"
+            placeholder="Adresse"
+            value={newArtiste.adresse}
+            onChange={handleInputChange}
+            style={{
+              padding: '10px',
+              borderRadius: '4px',
+              border: `1px solid ${theme.colors.border}`,
+              backgroundColor: theme.colors.input,
+              color: theme.colors.text
+            }}
+          />
+
+          <input
+            type="text"
+            name="ville"
+            placeholder="Ville"
+            value={newArtiste.ville}
+            onChange={handleInputChange}
+            style={{
+              padding: '10px',
+              borderRadius: '4px',
+              border: `1px solid ${theme.colors.border}`,
+              backgroundColor: theme.colors.input,
+              color: theme.colors.text
+            }}
+          />
+
+          <input
+            type="text"
+            name="codePostal"
+            placeholder="Code Postal"
+            value={newArtiste.codePostal}
             onChange={handleInputChange}
             style={{
               padding: '10px',
@@ -308,21 +387,6 @@ const ArtistesComponent = () => {
             }}
           />
 
-          <input
-            type="url"
-            name="lienCatalogue"
-            placeholder="Lien Catalogue"
-            value={newArtiste.lienCatalogue}
-            onChange={handleInputChange}
-            style={{
-              padding: '10px',
-              borderRadius: '4px',
-              border: `1px solid ${theme.colors.border}`,
-              backgroundColor: theme.colors.input,
-              color: theme.colors.text
-            }}
-          />
-
           <button
             type="button"
             onClick={handleSubmit}
@@ -346,11 +410,15 @@ const ArtistesComponent = () => {
                 setEditingArtiste(null);
                 setNewArtiste({
                   nom: '',
+                  prenom: '',
                   statut: '',
-                  coordonnees: '',
+                  telephone: '',
+                  email: '',
+                  adresse: '',
+                  ville: '',
+                  codePostal: '',
                   dateIntegration: '',
-                  commentaires: '',
-                  lienCatalogue: ''
+                  commentaires: ''
                 });
               }}
               style={{

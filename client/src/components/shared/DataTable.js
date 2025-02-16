@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { exportToCSV } from '../../utils/exportUtils';
 
 const DataTable = ({ 
   data, 
@@ -7,7 +8,8 @@ const DataTable = ({
   onDelete, 
   searchPlaceholder = "Rechercher...",
   initialSortColumn = null,
-  onRefresh = () => {} // New prop for refresh action
+  onRefresh = () => {},
+  filename = 'export'
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortColumn, setSortColumn] = useState(initialSortColumn);
@@ -368,6 +370,7 @@ const DataTable = ({
     <div>
       <div style={{ 
         display: 'flex', 
+        justifyContent: 'space-between',
         alignItems: 'center', 
         marginBottom: '20px',
         gap: '10px'
@@ -402,26 +405,44 @@ const DataTable = ({
             }}
           />
         </div>
-        <button
-          onClick={handleRefresh}
-          style={{
-            padding: '12px',
-            borderRadius: '6px',
-            border: '1px solid #ddd',
-            backgroundColor: '#fff',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.3s ease',
-            '&:hover': {
-              backgroundColor: '#f8f9fa'
-            }
-          }}
-        >
-          <i className="fas fa-sync-alt"></i>
-          <span>Actualiser</span>
-        </button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            onClick={() => exportToCSV(data, filename)}
+            style={{
+              padding: '12px',
+              borderRadius: '6px',
+              border: '1px solid #ddd',
+              backgroundColor: '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+          >
+            <i className="fas fa-download"></i>
+            <span>Exporter CSV</span>
+          </button>
+          <button
+            onClick={handleRefresh}
+            style={{
+              padding: '12px',
+              borderRadius: '6px',
+              border: '1px solid #ddd',
+              backgroundColor: '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                backgroundColor: '#f8f9fa'
+              }
+            }}
+          >
+            <i className="fas fa-sync-alt"></i>
+            <span>Actualiser</span>
+          </button>
+        </div>
       </div>
 
         <table style={{ 

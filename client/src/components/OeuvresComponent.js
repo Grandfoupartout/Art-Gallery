@@ -79,14 +79,13 @@ const OeuvresComponent = () => {
     }
   };
 
-  // Update handleInputChange to match ArtistesComponent.js pattern
-  const handleInputChange = (e, oeuvre) => {
+  // Update the handleInputChange function
+  const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setOeuvres(prevOeuvres =>
-      prevOeuvres.map(o =>
-        o._id === oeuvre._id ? { ...o, [name]: value } : o
-      )
-    );
+    setNewOeuvre(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
   // Update handleEdit to allow sold status changes
@@ -135,7 +134,7 @@ const OeuvresComponent = () => {
         return (
           <select
             value={currentValue || ''}
-            onChange={(e) => handleInputChange(e, row)}
+            onChange={(e) => handleInputChange(e)}
             name="idArtiste"
           >
             <option value="">Sélectionner un artiste</option>
@@ -177,7 +176,7 @@ const OeuvresComponent = () => {
         return (
           <select
             value={value || ''}
-            onChange={(e) => handleInputChange(e, row)}
+            onChange={(e) => handleInputChange(e)}
             name="propertyStatus"
           >
             {propertyStatusOptions.map(opt => (
@@ -201,7 +200,7 @@ const OeuvresComponent = () => {
         return (
           <select
             value={value || ''}
-            onChange={(e) => handleInputChange(e, row)}
+            onChange={(e) => handleInputChange(e)}
             name="consignmentDuration"
           >
             {consignmentDurationOptions.map(opt => (
@@ -225,7 +224,7 @@ const OeuvresComponent = () => {
         return (
           <select
             value={value || ''}
-            onChange={(e) => handleInputChange(e, row)}
+            onChange={(e) => handleInputChange(e)}
             name="availability"
           >
             {availabilityOptions.map(opt => (
@@ -278,7 +277,7 @@ const OeuvresComponent = () => {
             type="date"
             name="dateVente"
             value={dateValue}
-            onChange={(e) => handleInputChange(e, row)}
+            onChange={(e) => handleInputChange(e)}
             style={{
               padding: '10px',
               borderRadius: '4px',
@@ -421,7 +420,7 @@ const OeuvresComponent = () => {
             name="titre"
             placeholder="Titre *"
             value={newOeuvre.titre}
-            onChange={(e) => handleInputChange(e, newOeuvre)}
+            onChange={handleInputChange}
             style={{
               padding: '10px',
               borderRadius: '4px',
@@ -432,12 +431,36 @@ const OeuvresComponent = () => {
             required
           />
 
+          <select
+            name="idArtiste"
+            value={newOeuvre.idArtiste}
+            onChange={handleInputChange}
+            style={{
+              padding: '10px',
+              borderRadius: '4px',
+              border: `1px solid ${theme.colors.border}`,
+              backgroundColor: theme.colors.input,
+              color: theme.colors.text
+            }}
+            required
+          >
+            <option value="">Sélectionner un artiste *</option>
+            {artistes.map(artiste => (
+              <option 
+                key={artiste._id} 
+                value={artiste._id}
+              >
+                {`${artiste.prenom || ''} ${artiste.nom}`}
+              </option>
+            ))}
+          </select>
+
           <input
             type="number"
             name="anneeCreation"
             placeholder="Année de création"
             value={newOeuvre.anneeCreation}
-            onChange={(e) => handleInputChange(e, newOeuvre)}
+            onChange={handleInputChange}
             style={{
               padding: '10px',
               borderRadius: '4px',
@@ -452,7 +475,7 @@ const OeuvresComponent = () => {
             name="technique"
             placeholder="Technique"
             value={newOeuvre.technique}
-            onChange={(e) => handleInputChange(e, newOeuvre)}
+            onChange={handleInputChange}
             style={{
               padding: '10px',
               borderRadius: '4px',
@@ -467,7 +490,7 @@ const OeuvresComponent = () => {
             name="dimensions"
             placeholder="Dimensions"
             value={newOeuvre.dimensions}
-            onChange={(e) => handleInputChange(e, newOeuvre)}
+            onChange={handleInputChange}
             style={{
               padding: '10px',
               borderRadius: '4px',
@@ -483,7 +506,7 @@ const OeuvresComponent = () => {
             name="prixVente"
             placeholder="Prix de vente"
             value={newOeuvre.prixVente}
-            onChange={(e) => handleInputChange(e, newOeuvre)}
+            onChange={handleInputChange}
             style={{
               padding: '10px',
               borderRadius: '4px',
@@ -499,7 +522,7 @@ const OeuvresComponent = () => {
             name="reduction"
             placeholder="Réduction"
             value={newOeuvre.reduction}
-            onChange={(e) => handleInputChange(e, newOeuvre)}
+            onChange={handleInputChange}
             style={{
               padding: '10px',
               borderRadius: '4px',
@@ -512,7 +535,7 @@ const OeuvresComponent = () => {
           <select
             name="availability"
             value={newOeuvre.availability}
-            onChange={(e) => handleInputChange(e, newOeuvre)}
+            onChange={handleInputChange}
             style={{
               padding: '10px',
               borderRadius: '4px',
@@ -534,7 +557,7 @@ const OeuvresComponent = () => {
               type="date"
               name="dateVente"
               value={newOeuvre.dateVente || ''}
-              onChange={(e) => handleInputChange(e, newOeuvre)}
+              onChange={handleInputChange}
               style={{
                 padding: '10px',
                 borderRadius: '4px',
@@ -549,7 +572,7 @@ const OeuvresComponent = () => {
           <select
             name="propertyStatus"
             value={newOeuvre.propertyStatus}
-            onChange={(e) => handleInputChange(e, newOeuvre)}
+            onChange={handleInputChange}
             style={{
               padding: '10px',
               borderRadius: '4px',
@@ -569,7 +592,7 @@ const OeuvresComponent = () => {
           <select
             name="consignmentDuration"
             value={newOeuvre.consignmentDuration}
-            onChange={(e) => handleInputChange(e, newOeuvre)}
+            onChange={handleInputChange}
             style={{
               padding: '10px',
               borderRadius: '4px',

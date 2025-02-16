@@ -1,9 +1,10 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext';
 
 const Navigation = () => {
   const { theme, toggleTheme } = useTheme();
+  const location = useLocation();
 
   return (
     <nav className="sidebar">
@@ -51,6 +52,15 @@ const Navigation = () => {
           <Link to="/budget" className="nav-link">
             <i className="fas fa-coins"></i>
             <span>Budget</span>
+          </Link>
+        </li>
+        <li>
+          <Link 
+            to="/chat" 
+            className={`nav-link ${location.pathname === '/chat' ? 'active' : ''}`}
+          >
+            <i className="fas fa-robot"></i>
+            <span>AI Assistant</span>
           </Link>
         </li>
         <li>

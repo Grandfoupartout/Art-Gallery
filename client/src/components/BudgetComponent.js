@@ -65,24 +65,53 @@ const BudgetComponent = () => {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    if (editingEntry) {
-      setEditingEntry({ ...editingEntry, [name]: value });
+    
+    if (name === 'montant') {
+      // Always store positive value in the form state
+      // The sign will be handled during submit/edit
+      setNewEntry(prev => ({
+        ...prev,
+        [name]: Math.abs(Number(value))
+      }));
     } else {
-      setNewEntry({ ...newEntry, [name]: value });
+      setNewEntry(prev => ({
+        ...prev,
+        [name]: value
+      }));
     }
     setError('');
   };
 
   const handleEdit = async (entry) => {
     try {
+      const updatedEntry = { ...entry };
+      
+      // Format the amount based on type
+      if (updatedEntry.montant) {
+        updatedEntry.montant = Math.abs(Number(updatedEntry.montant)) * 
+          (updatedEntry.type === 'depense' ? -1 : 1);
+      }
+
       const response = await axios.put(
         `http://localhost:5000/api/budget/${entry._id}`,
-        entry
+        updatedEntry
       );
+      
       setBudget(prevBudget =>
-        prevBudget.map(b => b._id === entry._id ? response.data : b)
+        prevBudget.map(b =>
+          b._id === entry._id ? response.data : b
+        )
       );
+      
       setEditingEntry(null);
+      setNewEntry({
+        date: '',
+        categorie: '',
+        description: '',
+        montant: '',
+        type: 'depense'
+      });
+      setError('');
     } catch (error) {
       setError('Erreur lors de la modification: ' + error.message);
     }
@@ -100,13 +129,18 @@ const BudgetComponent = () => {
   };
 
   const handleSubmit = async () => {
-    if (!newEntry.date || !newEntry.montant || !newEntry.categorie) {
-      setError('La date, le montant et la catégorie sont obligatoires');
+    if (!newEntry.date || !newEntry.categorie || !newEntry.montant) {
+      setError('Veuillez remplir tous les champs obligatoires');
       return;
     }
 
     try {
-      const response = await axios.post('http://localhost:5000/api/budget', newEntry);
+      const entryToSubmit = {
+        ...newEntry,
+        montant: Math.abs(Number(newEntry.montant)) * (newEntry.type === 'depense' ? -1 : 1)
+      };
+
+      const response = await axios.post('http://localhost:5000/api/budget', entryToSubmit);
       setBudget([...budget, response.data]);
       setNewEntry({
         date: '',
@@ -117,8 +151,15 @@ const BudgetComponent = () => {
       });
       setError('');
     } catch (error) {
-      setError('Erreur lors de l\'ajout de l\'entrée: ' + error.message);
+      setError('Erreur lors de l\'ajout: ' + error.message);
     }
+  };
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('fr-FR', {
+      style: 'currency',
+      currency: 'EUR'
+    }).format(amount);
   };
 
   const columns = [
@@ -138,13 +179,18 @@ const BudgetComponent = () => {
     {
       key: 'montant',
       label: 'Montant',
+      type: 'number',
       render: (value, row) => {
-        const amount = parseFloat(value);
-        const color = row.type === 'revenu' ? '#4CAF50' : '#f44336';
+        const amount = Number(value);
+        const isPositive = amount >= 0;
+        
         return (
-          <span style={{ color }}>
-            {row.type === 'revenu' ? '+' : '-'}{Math.abs(amount).toLocaleString('fr-FR')}€
-          </span>
+          <div style={{
+            color: isPositive ? '#4CAF50' : '#f44336',
+            fontWeight: 'bold'
+          }}>
+            {formatCurrency(Math.abs(amount))}
+          </div>
         );
       }
     },
@@ -159,8 +205,9 @@ const BudgetComponent = () => {
 
   const calculateTotal = () => {
     return budget.reduce((acc, entry) => {
-      const amount = parseFloat(entry.montant);
-      return entry.type === 'revenu' ? acc + amount : acc - amount;
+      // Since expenses are already stored as negative values,
+      // we can simply add all amounts
+      return acc + Number(entry.montant);
     }, 0);
   };
 
@@ -247,39 +294,43 @@ const BudgetComponent = () => {
             ))}
           </select>
 
-          <input
-            type="number"
-            name="montant"
-            placeholder="Montant *"
-            value={newEntry.montant}
-            onChange={handleInputChange}
-            style={{
-              padding: '10px',
-              borderRadius: '4px',
-              border: `1px solid ${theme.colors.border}`,
-              backgroundColor: theme.colors.input,
-              color: theme.colors.text
-            }}
-            required
-          />
-
-          <select
-            name="type"
-            value={newEntry.type}
-            onChange={handleInputChange}
-            style={{
-              padding: '10px',
-              borderRadius: '4px',
-              padding: '0.60rem',
-              fontSize: '1rem',
-              border: `1px solid ${theme.colors.border}`,
-              backgroundColor: theme.colors.input,
-              color: theme.colors.text
-            }}
-          >
-            <option value="depense">Dépense</option>
-            <option value="revenu">Revenu</option>
-          </select>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <input
+              type="number"
+              name="montant"
+              placeholder="Montant *"
+              value={newEntry.montant}
+              onChange={handleInputChange}
+              style={{
+                padding: '10px',
+                borderRadius: '4px',
+                border: `1px solid ${theme.colors.border}`,
+                backgroundColor: theme.colors.input,
+                color: theme.colors.text,
+                width: '150px'
+              }}
+              required
+            />
+            <select
+              name="type"
+              value={newEntry.type}
+              onChange={(e) => setNewEntry({
+                ...newEntry,
+                type: e.target.value
+              })}
+              style={{
+                padding: '10px',
+                borderRadius: '4px',
+                border: `1px solid ${theme.colors.border}`,
+                backgroundColor: theme.colors.input,
+                color: theme.colors.text
+              }}
+              required
+            >
+              <option value="depense">Dépense</option>
+              <option value="revenu">Revenu</option>
+            </select>
+          </div>
 
           <input
             type="text"
@@ -363,7 +414,7 @@ const BudgetComponent = () => {
           fontSize: '1.2rem',
           color: calculateTotal() >= 0 ? '#4CAF50' : '#f44336' 
         }}>
-          {calculateTotal().toLocaleString('fr-FR')}€
+          {formatCurrency(calculateTotal())}
         </span>
       </div>
 

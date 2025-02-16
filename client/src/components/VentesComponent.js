@@ -62,6 +62,23 @@ const VentesComponent = () => {
 
   const handleInputChange = (e, vente) => {
     const { name, value } = e.target;
+    
+    // Special handling for date fields
+    if (name === 'dateVente') {
+      const date = new Date(value);
+      if (isNaN(date.getTime())) {
+        setError('Date invalide');
+        return;
+      }
+      setVentes(prevVentes =>
+        prevVentes.map(v =>
+          v._id === vente._id ? { ...v, [name]: date.toISOString() } : v
+        )
+      );
+      return;
+    }
+
+    // Handle other fields normally
     setVentes(prevVentes =>
       prevVentes.map(v =>
         v._id === vente._id ? { ...v, [name]: value } : v
@@ -78,6 +95,9 @@ const VentesComponent = () => {
         const date = new Date(updatedVente.dateVente);
         if (!isNaN(date.getTime())) {
           updatedVente.dateVente = date.toISOString();
+        } else {
+          setError('Date invalide');
+          return;
         }
       }
 
@@ -140,11 +160,16 @@ const VentesComponent = () => {
 
     try {
       const venteToSubmit = { ...newVente };
+      
       // Ensure proper date formatting
       if (venteToSubmit.dateVente) {
+        // Convert local date to ISO string
         const date = new Date(venteToSubmit.dateVente);
         if (!isNaN(date.getTime())) {
           venteToSubmit.dateVente = date.toISOString();
+        } else {
+          setError('Date invalide');
+          return;
         }
       }
 
@@ -264,59 +289,6 @@ const VentesComponent = () => {
 
   const columns = [
     {
-      key: 'date',
-      label: 'Date',
-      type: 'date',
-      getValue: (value) => {
-        if (!value) return '';
-        try {
-          const date = new Date(value);
-          if (isNaN(date.getTime())) return '';
-          return date.toISOString().split('T')[0];
-        } catch (error) {
-          return '';
-        }
-      },
-      render: (value, row, isEditing) => {
-        if (!isEditing) {
-          if (!value) return 'Non défini';
-          try {
-            const date = new Date(value);
-            if (isNaN(date.getTime())) return 'Date invalide';
-            return date.toLocaleDateString('fr-FR'); // Display format: dd/mm/yyyy
-          } catch (error) {
-            return 'Date invalide';
-          }
-        }
-
-        // Handle editing mode
-        let dateValue = '';
-        if (value) {
-          const date = new Date(value);
-          if (!isNaN(date.getTime())) {
-            dateValue = date.toISOString().split('T')[0];
-          }
-        }
-
-        return (
-          <input
-            type="date"
-            name="date"
-            value={dateValue}
-            onChange={(e) => handleInputChange(e, row)}
-            style={{
-              padding: '10px',
-              borderRadius: '4px',
-              border: `1px solid ${theme.colors.border}`,
-              backgroundColor: theme.colors.input,
-              color: theme.colors.text,
-              width: '100%'
-            }}
-          />
-        );
-      }
-    },
-    {
       key: 'dateVente',
       label: 'Date de vente',
       type: 'date',
@@ -342,9 +314,15 @@ const VentesComponent = () => {
           }
         }
 
-        // For edit mode, ensure we're using the actual value from the row
-        const dateValue = row.dateVente ? new Date(row.dateVente).toISOString().split('T')[0] : '';
-        
+        // For edit mode
+        let dateValue = '';
+        if (value) {
+          const date = new Date(value);
+          if (!isNaN(date.getTime())) {
+            dateValue = date.toISOString().split('T')[0];
+          }
+        }
+
         return (
           <input
             type="date"
@@ -530,7 +508,7 @@ const VentesComponent = () => {
           <input
             type="date"
             name="dateVente"
-            value={newVente.dateVente || ''}
+            value={newVente.dateVente ? new Date(newVente.dateVente).toISOString().split('T')[0] : ''}
             onChange={(e) => setNewVente({ 
               ...newVente, 
               dateVente: e.target.value 
